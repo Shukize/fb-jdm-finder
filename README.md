@@ -4,7 +4,7 @@ Browse Facebook Marketplace JDM/sport-compact listings by country — full photo
 
 Models: Mazda RX-7 · Toyota 86/GR86 · Nissan 240SX · Nissan Skyline R32 · Toyota Supra · Toyota Corolla · Toyota Celica · Eagle Talon · Mitsubishi Eclipse GSX.
 
-**Live demo:** _(GitHub Pages URL appears here after deploy)_
+**Live demo:** https://shukize.github.io/fb-jdm-finder/
 
 ## How it works
 
