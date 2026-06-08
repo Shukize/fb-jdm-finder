@@ -52,6 +52,11 @@ export const EXCLUDE = [
   "engine swap", "motor swap", "long block", "short block", "axle", "axles", "driveshaft", "knuckle",
   "control arm", "sway bar", "fuel pump", "injector", "injectors", "flywheel", "fan clutch", "fanclutch",
   "part out", "parts car", "for parts", "parting out",
+  "coils", "coil pack", "coilpack", "bracket", "brackets", "intake", "charge pipe", "catch can",
+  "tailight", "taillite", "tail lite", "valve cover", "camshaft", "crankshaft", "piston", "pistons",
+  "skid plate", "oil cooler", "shifter", "pedals", "ecu", "strut bar", "tie rod", "ball joint",
+  "cv axle", "wheel bearing", "timing belt", "head gasket", "brake kit", "big brake", "rotors",
+  "brake pads", "steering rack", "lug nuts", "spacers", "grille", "splitter", "diffuser", "lip kit",
 ];
 
 // Normalize for token matching: lowercase, non-alphanumerics → single spaces,
