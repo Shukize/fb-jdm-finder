@@ -31,15 +31,27 @@ export const MODELS = [
 
 /* Listings whose TITLE contains any of these are dropped outright — they are
    clearly not the car (other product categories, or parts/accessories rather
-   than a whole vehicle). Kept deliberately conservative so real cars survive. */
+   than a whole vehicle). Kept deliberately conservative so real cars survive:
+   note we avoid words that legitimately appear in car titles (turbo, manual,
+   coupe, hatchback, door, …). */
 export const EXCLUDE = [
+  // other product categories
   "bicycle", "e-bike", "ebike", "e bike", "mountain bike", "dirt bike", "scooter",
   "sneaker", "yeezy", "jordan", "shoe", "cleats", "t-shirt", "hoodie", "jacket", "jersey",
-  "drum", "guitar", "piano", "amplifier", "keyboard",
+  "drum", "guitar", "piano", "amplifier",
   "sofa", "couch", "loveseat", "mattress", "dresser", "nightstand", "lamp", "rug",
   "iphone", "ipad", "macbook", "laptop", "ps5", "xbox", "nintendo",
   "knife", "airsoft", "poster", "keychain", "sticker", "decal", "diecast", "hot wheels",
   "model kit", "rc car", "lawn mower", "generator", "motorhome",
+  // parts / accessories rather than a whole car
+  "wheels", "wheel", "rims", "tires", "tire", "coilover", "coilovers", "differential", "diff",
+  "undercarriage", "subframe", "subframes", "caliper", "calipers", "bumper", "hood", "fender", "fenders",
+  "spoiler", "seats", "gauge", "gauges", "cluster", "shift knob", "manifold", "header", "headers",
+  "exhaust", "downpipe", "intercooler", "radiator", "turbo kit", "turbocharger", "body kit", "bodykit",
+  "headlight", "headlights", "taillight", "taillights", "door panel", "wiring harness", "gearbox",
+  "engine swap", "motor swap", "long block", "short block", "axle", "axles", "driveshaft", "knuckle",
+  "control arm", "sway bar", "fuel pump", "injector", "injectors", "flywheel", "fan clutch", "fanclutch",
+  "part out", "parts car", "for parts", "parting out",
 ];
 
 // Normalize for token matching: lowercase, non-alphanumerics → single spaces,

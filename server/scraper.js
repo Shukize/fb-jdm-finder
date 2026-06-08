@@ -92,10 +92,14 @@ function mapItem(it, model, country, i) {
   ) || "";
   const state = deepGet(it, "location.reverse_geocode.state");
   if (city && state && !city.includes(state)) city = `${city}, ${state}`;
+  // Prefer the already-formatted price (real dollars). The official actor's
+  // listing_price.amount is in minor units (cents) — using it directly inflates
+  // prices 100×, so it's only a last resort.
   const price = parsePrice(firstDef(
-    pick(it, ["price", "priceAmount", "listingPrice", "amount", "formattedPrice"]),
+    pick(it, ["price", "priceAmount", "listingPrice", "formattedPrice"]),
+    deepGet(it, "listing_price.formatted_amount"),
     deepGet(it, "listing_price.amount"),
-    deepGet(it, "listing_price.formatted_amount")
+    pick(it, ["amount"])
   ));
   return {
     id,
