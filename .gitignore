@@ -8,3 +8,6 @@ Thumbs.db
 .env.*
 !.env.example
 !server/.env.example
+
+# Claude Code agent memory (not part of the project)
+memory/

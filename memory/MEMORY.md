@@ -1,1 +1,0 @@
-- [Deployment topology](deployment-topology.md) — GitHub Pages + Render (beater.onrender.com) + Neon; live URLs and free-tier sleep caveat
