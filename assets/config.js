@@ -13,5 +13,5 @@
      is never blank.
    ─────────────────────────────────────────────────────────────────────────── */
 window.JDM_CONFIG = {
-  apiBase: "https://jdm-finder-api.onrender.com",
+  apiBase: "https://beater.onrender.com",
 };
