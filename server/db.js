@@ -128,6 +128,14 @@ export async function upsertListings(items) {
   return { inserted, total: items.length };
 }
 
+/* Delete ALL live (non-sample) rows. Used by a `reset` refresh to purge
+   previously-stored junk before re-populating with relevance-filtered data. */
+export async function clearLive() {
+  if (!pool) return 0;
+  const r = await pool.query("DELETE FROM listings WHERE sample = FALSE");
+  return r.rowCount;
+}
+
 /* Delete live rows not seen in the most recent `keepDays` days, so sold /
    removed listings eventually drop off. */
 export async function pruneStale(keepDays = 14) {

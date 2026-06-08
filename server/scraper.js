@@ -9,8 +9,8 @@
    If your chosen actor uses different names, extend the arrays in mapItem /
    buildInput. */
 
-import { MODELS, COUNTRIES, MODEL_BY_KEY, COUNTRY_BY_CODE, parseList } from "./catalog.js";
-import { upsertListings, setMeta, pruneStale } from "./db.js";
+import { MODELS, COUNTRIES, MODEL_BY_KEY, COUNTRY_BY_CODE, parseList, matchesModel } from "./catalog.js";
+import { upsertListings, setMeta, pruneStale, clearLive } from "./db.js";
 
 const APIFY_TOKEN = (process.env.APIFY_TOKEN || "").trim();
 const APIFY_ACTOR = (process.env.APIFY_ACTOR || "").trim();
@@ -38,6 +38,10 @@ function targetCountries() {
 
 // ---- mapping helpers ----
 function pick(o, keys) { for (const k of keys) { if (o && o[k] != null && o[k] !== "") return o[k]; } return undefined; }
+// Read a dotted nested path, e.g. "listing_price.formatted_amount".
+function deepGet(o, path) { return path.split(".").reduce((v, k) => (v == null ? undefined : v[k]), o); }
+function firstDef(...vals) { for (const v of vals) if (v != null && v !== "") return v; return undefined; }
+function yearFromText(s) { const m = String(s || "").match(/\b(19[6-9]\d|20[0-3]\d)\b/); return m ? +m[1] : ""; }
 function parsePrice(v) {
   if (typeof v === "number") return Math.round(v);
   if (!v) return 0;
@@ -50,7 +54,12 @@ function mapImages(it) {
   let imgs = pick(it, ["images", "photos", "imageUrls", "pictures", "photo_urls", "imageUrl"]);
   if (!imgs && it.image) imgs = [it.image];
   if (!Array.isArray(imgs)) imgs = imgs ? [imgs] : [];
-  return imgs.map((x) => (typeof x === "string" ? x : pick(x, ["url", "src", "uri", "image"]))).filter(Boolean);
+  imgs = imgs.map((x) => (typeof x === "string" ? x : pick(x, ["url", "src", "uri", "image"]))).filter(Boolean);
+  // official apify/facebook-marketplace-scraper shape (nested):
+  const primary = deepGet(it, "primary_listing_photo.image.uri");
+  if (primary) imgs.unshift(primary);
+  if (Array.isArray(it.listing_photos)) for (const p of it.listing_photos) { const u = deepGet(p, "image.uri"); if (u) imgs.push(u); }
+  return [...new Set(imgs)];
 }
 function parsePostedAt(it) {
   const raw = pick(it, ["postedAt", "creationTime", "createdAt", "publishedAt", "date", "listedAt"]);
@@ -66,37 +75,75 @@ function mapItem(it, model, country, i) {
   const url = pick(it, ["url", "listingUrl", "link", "permalink"]) || model.query;
   const id = String(fbId || (url && url.length > 8 ? "fb-" + hashStr(url) : `live-${model.key}-${country.code}-${i}`));
   const postedAt = parsePostedAt(it);
+  // Title: never default to the model name — we match relevance on this, so a
+  // fabricated title would let junk through. Empty title ⇒ dropped downstream.
+  const title = pick(it, ["title", "name", "marketplace_listing_title"]) || "";
+  const description = firstDef(
+    pick(it, ["description", "text"]),
+    deepGet(it, "redactedDescription.text"),
+    pick(it, ["redactedDescription", "marketplace_listing_description"])
+  ) || "";
+  // City: official actor nests it; guard against `location` being an object.
+  let city = firstDef(
+    deepGet(it, "location.reverse_geocode.city"),
+    deepGet(it, "location.reverse_geocode.city_page.display_name"),
+    pick(it, ["city", "locationText", "place"]),
+    typeof it.location === "string" ? it.location : undefined
+  ) || "";
+  const state = deepGet(it, "location.reverse_geocode.state");
+  if (city && state && !city.includes(state)) city = `${city}, ${state}`;
+  const price = parsePrice(firstDef(
+    pick(it, ["price", "priceAmount", "listingPrice", "amount", "formattedPrice"]),
+    deepGet(it, "listing_price.amount"),
+    deepGet(it, "listing_price.formatted_amount")
+  ));
   return {
     id,
     model: model.key,
     modelName: model.name,
     query: model.query,
-    title: pick(it, ["title", "name", "marketplace_listing_title"]) || (model.name + " listing"),
-    price: parsePrice(pick(it, ["price", "priceAmount", "listingPrice", "amount", "formattedPrice"])),
+    title,
+    price,
     currency: pick(it, ["currencySymbol"]) || country.cur,
     curCode: pick(it, ["currency", "currencyCode"]) || country.curCode,
     country: country.code,
     countryName: country.name,
-    city: pick(it, ["location", "city", "locationText", "place"]) || "",
-    year: parseNum(pick(it, ["year"])),
+    city,
+    year: parseNum(pick(it, ["year"])) || yearFromText(title),
     mileage: parseNum(pick(it, ["mileage", "odometer"])),
     mileageUnit: country.unit,
     transmission: pick(it, ["transmission"]) || "",
-    description: pick(it, ["description", "redactedDescription", "text"]) || "",
+    description,
     images: mapImages(it),
     url,
-    seller: pick(it, ["sellerName", "seller"]) || "",
+    seller: pick(it, ["sellerName", "seller"]) || deepGet(it, "marketplace_listing_seller.name") || "",
     postedAt: postedAt ? postedAt.toISOString() : null,
     sample: false,
   };
 }
 
+// Facebook Marketplace search URL for a city + query (what the official
+// apify/facebook-marketplace-scraper expects inside startUrls).
+function citySlug(city) { return String(city || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+function searchUrl(model, country) {
+  return `https://www.facebook.com/marketplace/${citySlug(country.cities[0])}/search/?query=${encodeURIComponent(model.query)}`;
+}
+
 function buildInput(model, country) {
+  const url = searchUrl(model, country);
   const loc = country.cities[0];
   return {
-    query: model.query, search: model.query, keyword: model.query, searchTerm: model.query,
+    // ── official apify/facebook-marketplace-scraper (verified schema) ──
+    startUrls: [{ url }],
+    resultsLimit: MAX_ITEMS,
+    includeListingDetails: true,
+    // ── compatibility for keyword-style community actors (ignored by the
+    //    official actor; one of these matches whatever actor is configured) ──
+    query: model.query, search: model.query, keyword: model.query,
+    keywords: model.query, searchTerm: model.query, searchQuery: model.query, q: model.query,
     location: loc, city: loc, country: country.name, countryCode: country.code,
-    maxItems: MAX_ITEMS, count: MAX_ITEMS, resultsLimit: MAX_ITEMS, maxResults: MAX_ITEMS,
+    maxItems: MAX_ITEMS, count: MAX_ITEMS, maxResults: MAX_ITEMS,
+    urls: [url], listingUrls: [{ url }],
   };
 }
 
@@ -114,8 +161,12 @@ async function runActor(model, country) {
     const body = await res.text().catch(() => "");
     throw new Error("Apify " + res.status + ": " + body.slice(0, 200));
   }
-  const items = await res.json();
-  return Array.isArray(items) ? items.map((it, i) => mapItem(it, model, country, i)) : [];
+  const raw = await res.json();
+  const mapped = Array.isArray(raw) ? raw.map((it, i) => mapItem(it, model, country, i)) : [];
+  // Relevance gate: only keep listings that genuinely are this model. This is
+  // what makes "select RX-7 → only RX-7s" true regardless of actor noise.
+  const kept = mapped.filter((x) => matchesModel(x.title, x.description, model));
+  return { kept, fetched: mapped.length };
 }
 
 // simple promise pool so we don't fire 50 actor runs at once
@@ -133,7 +184,7 @@ async function pool(tasks, size, worker, onResult) {
 
 /* Scrape the whole model × country matrix and upsert into Neon.
    Returns a summary; never throws on a single failed combo. */
-export async function runRefresh({ log = console.log } = {}) {
+export async function runRefresh({ log = console.log, reset = false } = {}) {
   if (!isConfigured()) throw new Error("Apify not configured — set APIFY_TOKEN and APIFY_ACTOR.");
   const models = targetModels();
   const countries = targetCountries();
@@ -141,7 +192,7 @@ export async function runRefresh({ log = console.log } = {}) {
   for (const m of models) for (const c of countries) combos.push({ m, c });
 
   log(`[scrape] starting: ${models.length} models × ${countries.length} countries = ${combos.length} runs (concurrency ${CONCURRENCY})`);
-  let scraped = 0, inserted = 0;
+  let fetched = 0, kept = 0, inserted = 0;
   const errors = [];
   const all = [];
 
@@ -149,18 +200,26 @@ export async function runRefresh({ log = console.log } = {}) {
     combos,
     CONCURRENCY,
     ({ m, c }) => runActor(m, c),
-    (items, { m, c }, err) => {
+    (result, { m, c }, err) => {
       if (err) { errors.push(`${m.key}/${c.code}: ${err.message}`); log(`[scrape] ✗ ${m.key}/${c.code}: ${err.message}`); return; }
-      scraped += items.length;
-      all.push(...items);
-      log(`[scrape] ✓ ${m.key}/${c.code}: ${items.length} items`);
+      fetched += result.fetched;
+      kept += result.kept.length;
+      all.push(...result.kept);
+      log(`[scrape] ✓ ${m.key}/${c.code}: kept ${result.kept.length}/${result.fetched} relevant`);
     }
   );
 
-  // de-dupe across combos by id, then one batched upsert
+  // de-dupe across combos by id (keep only listings with a usable link/photo)
   const byId = new Map();
   for (const it of all) if (it.images.length || it.url) byId.set(it.id, it);
   const unique = [...byId.values()];
+
+  // `reset` wipes the old table first — used to purge previously-stored junk.
+  // Guard: only wipe when we actually scraped replacements, so a failed/empty
+  // run can't blank the site.
+  let cleared = 0;
+  if (reset && unique.length) { cleared = await clearLive(); log(`[scrape] reset: cleared ${cleared} existing rows`); }
+
   if (unique.length) {
     const r = await upsertListings(unique);
     inserted = r.inserted;
@@ -169,11 +228,11 @@ export async function runRefresh({ log = console.log } = {}) {
 
   const summary = {
     at: new Date().toISOString(),
-    runs: combos.length, scraped, upserted: unique.length, newListings: inserted, pruned,
-    errors: errors.length, errorSample: errors.slice(0, 5),
+    runs: combos.length, fetched, kept, upserted: unique.length, newListings: inserted,
+    cleared, pruned, errors: errors.length, errorSample: errors.slice(0, 5),
   };
   await setMeta("last_refresh", summary.at);
   await setMeta("last_refresh_summary", JSON.stringify(summary));
-  log(`[scrape] done: scraped ${scraped}, upserted ${unique.length} (${inserted} new), pruned ${pruned}, errors ${errors.length}`);
+  log(`[scrape] done: fetched ${fetched}, kept ${kept} relevant, upserted ${unique.length} (${inserted} new), cleared ${cleared}, pruned ${pruned}, errors ${errors.length}`);
   return summary;
 }

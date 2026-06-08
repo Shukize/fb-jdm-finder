@@ -61,7 +61,9 @@ app.get("/api/health", async (_req, res) => {
 
 app.get("/api/catalog", (_req, res) => {
   res.set("Cache-Control", "public, max-age=3600");
-  res.json({ models: MODELS, countries: COUNTRIES });
+  // `match` is server-side scrape config; don't leak it to the frontend.
+  const models = MODELS.map(({ match, ...m }) => m);
+  res.json({ models, countries: COUNTRIES });
 });
 
 app.get("/api/listings", async (req, res) => {
@@ -101,7 +103,9 @@ async function handleRefresh(req, res) {
   if (refreshing) return res.status(409).json({ ok: false, error: "a refresh is already running" });
   refreshing = true;
   try {
-    const summary = await runRefresh();
+    // ?reset=1 wipes existing live rows before repopulating (purges old junk).
+    const reset = req.query.reset === "1" || req.query.reset === "true";
+    const summary = await runRefresh({ reset });
     res.json({ ok: true, summary });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });

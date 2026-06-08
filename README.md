@@ -35,8 +35,10 @@ You need three free accounts: **Neon** (database), **Render** (API host), **Apif
 
 ### 2. Apify — get the Facebook data source
 1. Make a free [Apify](https://apify.com) account (includes trial credits).
-2. In the [Apify Store](https://apify.com/store?search=facebook%20marketplace), open a **"Facebook Marketplace"** scraper actor. Copy its **actor ID** — the `owner~actor-name` shown on the actor page (e.g. `apify~facebook-marketplace-scraper`). That's `APIFY_ACTOR`.
+2. Use the official **[apify/facebook-marketplace-scraper](https://apify.com/apify/facebook-marketplace-scraper)** actor — set `APIFY_ACTOR=apify~facebook-marketplace-scraper`. The server builds the exact input this actor expects (a Marketplace **search URL** per model, e.g. `…/marketplace/losangeles/search/?query=mazda%20rx7`, with `resultsLimit` + `includeListingDetails`). Other "Facebook Marketplace" actors also work — the input includes common keyword keys as fallback and the output mapper accepts the usual field names — but this one is the verified default.
 3. From **Settings → Integrations**, copy your **API token**. That's `APIFY_TOKEN`.
+
+> **Only the selected car shows up.** Facebook search returns fuzzy, adjacent results (and some actors just browse by location). The server runs a **per-model relevance filter** ([`server/catalog.js`](server/catalog.js) → `matchesModel`): a scraped listing is only stored under e.g. `rx7` if its title/description actually matches RX-7 tokens (`rx7`, `rx-7`, `fd3s`, …) and isn't obviously a non-car. Tune the `match` arrays there if you want stricter/looser results.
 
 ### 3. Render — deploy the API
 **Option A — Blueprint (recommended).** This repo ships [`render.yaml`](render.yaml).
@@ -65,6 +67,10 @@ That's it — the server scrapes on boot and then every 6 hours; visitors just o
 - **Trigger a refresh any time** with the secret:
   ```bash
   curl "https://YOUR-SERVICE.onrender.com/api/refresh?secret=YOUR_REFRESH_SECRET"
+  ```
+- **Purge & repopulate** (drops all existing live rows first, then re-scrapes with the relevance filter — use this once after changing the actor or match rules):
+  ```bash
+  curl "https://YOUR-SERVICE.onrender.com/api/refresh?secret=YOUR_REFRESH_SECRET&reset=1"
   ```
 - **From your machine** (uses `server/.env`):
   ```bash
