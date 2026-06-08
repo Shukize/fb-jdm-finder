@@ -9,8 +9,8 @@ import express from "express";
 import cors from "cors";
 import cron from "node-cron";
 
-import { MODELS, COUNTRIES } from "./catalog.js";
-import { initSchema, hasDb, countLive, queryLive, getMeta } from "./db.js";
+import { MODELS, COUNTRIES, MODEL_BY_KEY, matchesModel } from "./catalog.js";
+import { initSchema, hasDb, countLive, queryLive, getMeta, setMeta, getAllLive, deleteListingsByIds, divideLivePrices } from "./db.js";
 import { SAMPLE } from "./sample.js";
 import { isConfigured, runRefresh } from "./scraper.js";
 
@@ -115,6 +115,33 @@ async function handleRefresh(req, res) {
 }
 app.post("/api/refresh", handleRefresh);
 app.get("/api/refresh", handleRefresh); // convenience for cron-job.org / browser
+
+/* One-time, in-place repair of already-stored rows (no Apify scrape needed):
+   - divides prices by 100 once (fixes the cents→dollars inflation), guarded by
+     a meta flag so a later correct scrape isn't halved;
+   - deletes rows that no longer pass the per-model relevance/parts filter.
+   Protected by REFRESH_SECRET. Safe to call repeatedly. */
+async function handleCleanup(req, res) {
+  if (!authorized(req)) return res.status(401).json({ ok: false, error: "unauthorized (bad or missing secret)" });
+  if (!hasDb()) return res.status(400).json({ ok: false, error: "no database configured" });
+  try {
+    let priceFixed = 0;
+    if (!(await getMeta("cents_fix_applied"))) {
+      priceFixed = await divideLivePrices(100);
+      await setMeta("cents_fix_applied", new Date().toISOString());
+    }
+    const rows = await getAllLive();
+    const badIds = rows
+      .filter((r) => { const m = MODEL_BY_KEY[r.model]; return !m || !matchesModel(r.title, r.description, m); })
+      .map((r) => r.id);
+    const deleted = await deleteListingsByIds(badIds);
+    res.json({ ok: true, priceFixed, scanned: rows.length, deleted, remaining: rows.length - deleted });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+}
+app.post("/api/cleanup", handleCleanup);
+app.get("/api/cleanup", handleCleanup);
 
 app.get("/", (_req, res) =>
   res.type("text").send("JDM Finder API. Try /api/health, /api/catalog, /api/listings")

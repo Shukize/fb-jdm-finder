@@ -136,6 +136,31 @@ export async function clearLive() {
   return r.rowCount;
 }
 
+/* ---- one-time, in-place maintenance (no Apify needed) ----
+   Used to repair data that was stored before the price/relevance fixes, so we
+   don't have to burn a scrape to correct it. */
+
+// All live rows, just the fields needed to re-check relevance.
+export async function getAllLive() {
+  if (!pool) return [];
+  const r = await pool.query("SELECT id, model, title, description, price FROM listings WHERE sample = FALSE");
+  return r.rows;
+}
+
+export async function deleteListingsByIds(ids) {
+  if (!pool || !ids.length) return 0;
+  const r = await pool.query("DELETE FROM listings WHERE id = ANY($1::text[])", [ids]);
+  return r.rowCount;
+}
+
+// Divide live prices by `by` (fixes the cents→dollars 100× inflation). Caller
+// guards with a meta flag so it only ever runs once.
+export async function divideLivePrices(by) {
+  if (!pool) return 0;
+  const r = await pool.query("UPDATE listings SET price = ROUND(price / $1) WHERE sample = FALSE AND price > 0", [by]);
+  return r.rowCount;
+}
+
 /* Delete live rows not seen in the most recent `keepDays` days, so sold /
    removed listings eventually drop off. */
 export async function pruneStale(keepDays = 14) {
