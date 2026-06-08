@@ -41,8 +41,8 @@ You need three free accounts: **Neon** (database), **Render** (API host), **Apif
 ### 3. Render — deploy the API
 **Option A — Blueprint (recommended).** This repo ships [`render.yaml`](render.yaml).
 1. In Render: **New → Blueprint**, connect this repo.
-2. Render reads `render.yaml`, creates the `jdm-finder-api` web service, and prompts you to paste the secrets: `DATABASE_URL`, `APIFY_TOKEN`, `APIFY_ACTOR`. (`REFRESH_SECRET` is auto-generated.)
-3. Deploy. Your API URL will be something like `https://jdm-finder-api.onrender.com`.
+2. Render reads `render.yaml`, creates the `beater` web service, and prompts you to paste the secrets: `DATABASE_URL`, `APIFY_TOKEN`, `APIFY_ACTOR`. (`REFRESH_SECRET` is auto-generated.)
+3. Deploy. Your API URL will be `https://beater.onrender.com` (the name in `render.yaml`). If Render appends a suffix because the name is taken, use the URL it shows and set it in `assets/config.js`.
 
 **Option B — manual.** New → **Web Service** → this repo. Set **Root Directory** = `server`, **Build** = `npm install`, **Start** = `npm start`, then add the env vars from [`server/.env.example`](server/.env.example).
 

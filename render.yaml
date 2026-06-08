@@ -3,7 +3,7 @@
 # creates the service, and prompts for the secret values (sync: false).
 services:
   - type: web
-    name: jdm-finder-api
+    name: beater          # → https://beater.onrender.com (matches assets/config.js)
     runtime: node
     plan: free
     rootDir: server
