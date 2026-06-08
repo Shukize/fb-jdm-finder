@@ -54,6 +54,7 @@ header.app p.tag { color: var(--muted); margin: 6px 0 0; width: 100%; }
 .pill.sample { color: var(--new); border-color: rgba(255,207,77,.4); background: rgba(255,207,77,.08); }
 .pill.live { color: var(--good); border-color: rgba(61,220,132,.4); background: rgba(61,220,132,.08); }
 .pill.err { color: var(--accent); border-color: rgba(255,77,77,.4); background: rgba(255,77,77,.08); }
+.pill.loading { color: var(--muted); }
 
 /* Results grid */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
@@ -138,5 +139,7 @@ header.app p.tag { color: var(--muted); margin: 6px 0 0; width: 100%; }
 .settings-body { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
 .settings-body h2 { margin: 0; }
 .settings-body .note { color: var(--muted); font-size: 13px; }
+.about-status { font-size: 13px; line-height: 1.7; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.about-status .pill { margin-right: 8px; }
 .settings-body code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); }
 .switch { display: flex; align-items: center; gap: 10px; }

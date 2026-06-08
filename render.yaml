@@ -1,0 +1,38 @@
+# Render Blueprint for the JDM Finder API.
+# In Render: New → Blueprint → connect this repo. Render reads this file,
+# creates the service, and prompts for the secret values (sync: false).
+services:
+  - type: web
+    name: jdm-finder-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # --- secrets: Render will prompt you to paste these on first deploy ---
+      - key: DATABASE_URL      # Neon pooled connection string (…?sslmode=require)
+        sync: false
+      - key: APIFY_TOKEN       # Apify API token (Settings → Integrations)
+        sync: false
+      - key: APIFY_ACTOR       # Apify actor id, e.g. owner~facebook-marketplace-scraper
+        sync: false
+      - key: REFRESH_SECRET    # long random string to protect /api/refresh
+        generateValue: true
+      # --- public config / tuning ---
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: REFRESH_CRON
+        value: "0 */6 * * *"
+      - key: SCRAPE_MODELS
+        value: all
+      - key: SCRAPE_COUNTRIES
+        value: US
+      - key: SCRAPE_MAX_ITEMS
+        value: "40"
+      - key: SCRAPE_CONCURRENCY
+        value: "2"
+      - key: SCRAPE_PRUNE_DAYS
+        value: "14"

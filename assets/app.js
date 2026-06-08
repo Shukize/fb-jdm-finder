@@ -1,26 +1,33 @@
 /* JDM Finder — UI controller */
 (function () {
   "use strict";
-  const { MODELS, COUNTRIES, getListings } = window.JDM;
+  const { MODELS, COUNTRIES, getListings, getHealth } = window.JDM;
   const $ = (s, r) => (r || document).querySelector(s);
   const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
 
   const LS = {
     filters: "jdm.filters.v2",
-    settings: "jdm.settings.v2",
     saved: "jdm.saved.v2",
   };
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 
   let filters = load(LS.filters, { model: "all", country: "US", city: "", query: "", minPrice: "", maxPrice: "", sort: "newest" });
-  let settings = load(LS.settings, { live: false, apifyToken: "", actorId: "" });
   let saved = load(LS.saved, []);
   let current = []; // currently displayed listings
+  let lastMeta = { live: false, lastRefresh: null, source: "sample-offline" };
 
   const fmtPrice = (n, cur) => cur + Number(n || 0).toLocaleString();
   const fmtMiles = (n, u) => (n ? Number(n).toLocaleString() + " " + u : "—");
-  const ago = (d) => (d === 0 ? "today" : d === 1 ? "1 day ago" : d + " days ago");
+  const ago = (d) => (d == null ? "—" : d === 0 ? "today" : d === 1 ? "1 day ago" : d + " days ago");
+  function timeAgo(iso) {
+    const t = Date.parse(iso); if (isNaN(t)) return "";
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 90) return "just now";
+    if (s < 5400) return Math.round(s / 60) + " min ago";
+    if (s < 129600) return Math.round(s / 3600) + " h ago";
+    return Math.round(s / 86400) + " d ago";
+  }
 
   // ---------- shell ----------
   function buildShell() {
@@ -30,14 +37,13 @@
         <h1>JDM Finder<span class="dot">.</span></h1>
         <span class="spacer"></span>
         <button class="iconbtn" id="savedBtn">★ Saved searches <span class="n" id="savedNew"></span></button>
-        <button class="iconbtn" id="settingsBtn">⚙ Settings</button>
-        <p class="tag">Browse live JDM listings by country — click any car for full details &amp; photos.</p>
+        <button class="iconbtn" id="aboutBtn">ⓘ About / data</button>
+        <p class="tag">Live Facebook Marketplace JDM listings by country — click any car for full details &amp; photos.</p>
       </header>
 
       <section class="toolbar">
         <div class="field"><label>Country</label><select id="f-country"></select></div>
         <div class="field"><label>Model</label><select id="f-model"></select></div>
-        <div class="field"><label>City (live mode)</label><input id="f-city" placeholder="optional"/></div>
         <div class="field"><label>Min price</label><input id="f-min" type="number" placeholder="0" min="0"/></div>
         <div class="field"><label>Max price</label><input id="f-max" type="number" placeholder="any" min="0"/></div>
         <div class="field"><label>Sort</label><select id="f-sort">
@@ -74,14 +80,14 @@
 
     // hydrate fields
     cSel.value = filters.country; mSel.value = filters.model;
-    $("#f-city").value = filters.city; $("#f-min").value = filters.minPrice;
+    $("#f-min").value = filters.minPrice;
     $("#f-max").value = filters.maxPrice; $("#f-sort").value = filters.sort;
     $("#f-query").value = filters.query;
 
     // events
     $("#searchBtn").onclick = runSearch;
     $("#saveBtn").onclick = saveCurrentSearch;
-    $("#settingsBtn").onclick = openSettings;
+    $("#aboutBtn").onclick = openAbout;
     $("#savedBtn").onclick = openDrawer;
     $("#f-query").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
     document.querySelectorAll("[data-close]").forEach((b) => (b.onclick = closeModals));
@@ -93,7 +99,7 @@
   function readFilters() {
     filters = {
       country: $("#f-country").value, model: $("#f-model").value,
-      city: $("#f-city").value.trim(), minPrice: $("#f-min").value.trim(),
+      minPrice: $("#f-min").value.trim(),
       maxPrice: $("#f-max").value.trim(), sort: $("#f-sort").value, query: $("#f-query").value.trim(),
     };
     save(LS.filters, filters);
@@ -103,13 +109,19 @@
   async function runSearch(seenUpdater) {
     readFilters();
     const status = $("#status");
-    status.innerHTML = `<span class="pill ${settings.live ? "live" : "sample"}">${settings.live ? "LIVE · Facebook" : "SAMPLE DATA"}</span> searching…`;
+    status.innerHTML = `<span class="pill loading">…</span> searching…`;
     try {
-      current = await getListings(filters, settings);
+      const data = await getListings(filters);
+      current = data.items;
+      lastMeta = data;
       if (typeof seenUpdater === "function") seenUpdater(current);
       renderResults(current);
       const where = filters.country === "all" ? "all countries" : (COUNTRIES.find((c) => c.code === filters.country) || {}).name;
-      status.innerHTML = `<span class="pill ${settings.live ? "live" : "sample"}">${settings.live ? "LIVE · Facebook" : "SAMPLE DATA"}</span> ${current.length} listing${current.length === 1 ? "" : "s"} · ${where}`;
+      const pill = data.live
+        ? `<span class="pill live">LIVE · Facebook</span>`
+        : `<span class="pill sample">SAMPLE DATA</span>`;
+      const fresh = data.live && data.lastRefresh ? " · updated " + timeAgo(data.lastRefresh) : "";
+      status.innerHTML = `${pill} ${current.length} listing${current.length === 1 ? "" : "s"} · ${where}${fresh}`;
     } catch (err) {
       current = [];
       renderResults([]);
@@ -131,7 +143,7 @@
       card.innerHTML = `
         <div class="thumb" style="background-image:url('${(it.images[0] || "").replace(/'/g, "%27")}')">
           ${isNew ? '<span class="new">NEW</span>' : ""}
-          <span class="count">${it.images.length} ◷ ${it.images.length} photo${it.images.length === 1 ? "" : "s"}</span>
+          ${it.images.length ? `<span class="count">◷ ${it.images.length} photo${it.images.length === 1 ? "" : "s"}</span>` : ""}
         </div>
         <div class="meta">
           <div class="price">${fmtPrice(it.price, it.currency)}</div>
@@ -154,7 +166,7 @@
       ["Mileage", it.mileage ? fmtMiles(it.mileage, it.mileageUnit) : "—"],
       ["Transmission", it.transmission || "—"],
       ["Location", [it.city, it.countryName].filter(Boolean).join(", ") || "—"],
-      ["Posted", it.sample ? ago(it.postedDaysAgo) : "—"],
+      ["Posted", it.postedDaysAgo != null ? ago(it.postedDaysAgo) : "—"],
     ];
     body.innerHTML = `
       <div class="gallery">
@@ -221,7 +233,7 @@
     // apply its filters to the toolbar, then search; compute new vs seen
     Object.assign(filters, ss.filters);
     $("#f-country").value = filters.country; $("#f-model").value = filters.model;
-    $("#f-city").value = filters.city || ""; $("#f-min").value = filters.minPrice || "";
+    $("#f-min").value = filters.minPrice || "";
     $("#f-max").value = filters.maxPrice || ""; $("#f-sort").value = filters.sort || "newest";
     $("#f-query").value = filters.query || "";
     closeDrawer();
@@ -262,24 +274,35 @@
     if (!favs.find((x) => x.id === it.id)) { favs.unshift({ id: it.id, title: it.title, price: it.price, currency: it.currency, url: it.url, image: it.images[0] }); save("jdm.favs.v1", favs); }
   }
 
-  // ---------- settings ----------
-  function openSettings() {
+  // ---------- about / data status ----------
+  function openAbout() {
     const b = $("#settingsBody");
+    const models = MODELS.map((m) => m.name).join(" · ");
     b.innerHTML = `
-      <h2>⚙ Settings — live data</h2>
-      <p class="note">By default the site shows <b>sample listings</b> so everything is browsable instantly. To pull <b>real Facebook Marketplace</b> listings, connect an <a href="https://apify.com" target="_blank" rel="noopener">Apify</a> account (free trial credits) and paste an actor + API token below. Facebook has no public API, so a scraper service is the only reliable source. Your token is stored only in this browser.</p>
-      <div class="switch"><input type="checkbox" id="s-live" ${settings.live ? "checked" : ""}/><label for="s-live"><b>Use live Facebook data</b> (requires the fields below)</label></div>
-      <div class="field"><label>Apify actor ID</label><input id="s-actor" placeholder="e.g. username~facebook-marketplace-scraper" value="${esc(settings.actorId)}"/></div>
-      <div class="field"><label>Apify API token</label><input id="s-token" type="password" placeholder="apify_api_..." value="${esc(settings.apifyToken)}"/></div>
-      <p class="note">Find an actor in the <a href="https://apify.com/store?search=facebook%20marketplace" target="_blank" rel="noopener">Apify Store</a> (search “facebook marketplace”). Copy its ID (the <code>owner~actor-name</code> shown on the actor page) and your token from <code>Settings → Integrations</code>. The data layer maps common field names automatically; tweak <code>assets/data.js → mapApifyItem</code> if your actor uses different keys.</p>
-      <button class="btn" id="s-save">Save settings</button>`;
-    $("#s-save").onclick = () => {
-      settings = { live: $("#s-live").checked, actorId: $("#s-actor").value.trim(), apifyToken: $("#s-token").value.trim() };
-      save(LS.settings, settings);
-      closeModals();
-      runSearch();
-    };
+      <h2>ⓘ About JDM Finder</h2>
+      <p class="note">Find <b>${MODELS.length} specific JDM / sport-compact models</b> for sale on Facebook Marketplace, across multiple countries, all on one page — full photos, full details, and a one-tap <b>View on Facebook</b> button.</p>
+      <p class="note"><b>Models tracked:</b> ${esc(models)}.</p>
+      <div class="about-status" id="aboutStatus"><span class="pill loading">…</span> checking the listings service…</div>
+      <p class="note">Listings are gathered for everyone by a backend service (it scrapes Facebook Marketplace on a schedule). Facebook has no public Marketplace API, so a scraper is the only reliable source. Nothing is required on your end — just search.</p>
+      <p class="note"><b>★ Saved searches</b> remember a filter set and flag listings that are <b>NEW</b> since you last checked. They live in this browser only.</p>
+      <a class="fb-btn" href="https://www.facebook.com/marketplace/" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.7l-.4 2.9h-2.3v7A10 10 0 0 0 22 12z"/></svg>
+        Open Facebook Marketplace
+      </a>`;
     $("#settingsBackdrop").classList.add("show");
+    getHealth().then((h) => {
+      const node = $("#aboutStatus");
+      if (!node) return;
+      if (!h) {
+        node.innerHTML = `<span class="pill sample">SAMPLE DATA</span> The live service isn't reachable right now — showing built-in sample listings.`;
+        return;
+      }
+      if (h.liveListings > 0) {
+        node.innerHTML = `<span class="pill live">LIVE · Facebook</span> ${Number(h.liveListings).toLocaleString()} live listings${h.lastRefresh ? " · updated " + timeAgo(h.lastRefresh) : ""}.`;
+      } else {
+        node.innerHTML = `<span class="pill sample">SAMPLE DATA</span> ${h.apify ? "Live service is connected; the first scrape may still be running." : "Live data source isn't configured yet."} Showing samples meanwhile.`;
+      }
+    });
   }
 
   function closeModals() { document.querySelectorAll(".backdrop").forEach((b) => b.classList.remove("show")); }

@@ -1,0 +1,21 @@
+{
+  "name": "jdm-finder-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JDM Finder API: scrapes Facebook Marketplace via Apify into Neon Postgres and serves listings to the static frontend.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "refresh": "node refresh-cli.js",
+    "check": "node --check server.js && node --check db.js && node --check scraper.js && node --check catalog.js && node --check sample.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "pg": "^8.12.0"
+  }
+}

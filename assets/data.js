@@ -1,18 +1,21 @@
-/* JDM Finder — data layer: models, countries, sample listings, and the live (Apify) provider.
+/* JDM Finder — data layer.
+   Talks to the JDM Finder API (Render + Neon + Apify) for real Facebook
+   Marketplace listings. If the API is unset or unreachable, it falls back to
+   built-in sample listings so the site is never blank.
    Exposes a single global: window.JDM */
 (function () {
   "use strict";
 
   const MODELS = [
-    { key: "rx7",        name: "Mazda RX-7",             query: "mazda rx7",             tag: "FC / FD · rotary",  years: [1985, 2002], base: 22000 },
-    { key: "gt86",       name: "Toyota 86 / GR86",       query: "toyota 86",             tag: "ZN6 / ZN8",         years: [2013, 2024], base: 24000 },
-    { key: "240sx",      name: "Nissan 240SX",           query: "nissan 240sx",          tag: "S13 / S14",         years: [1989, 1998], base: 16000 },
-    { key: "r32",        name: "Nissan Skyline R32",     query: "nissan skyline r32",    tag: "GT-R / GTS-T",      years: [1989, 1994], base: 38000 },
-    { key: "supra",      name: "Toyota Supra",           query: "toyota supra",          tag: "MK3 / MK4 / A90",   years: [1986, 2024], base: 45000 },
-    { key: "corolla",    name: "Toyota Corolla",         query: "toyota corolla",        tag: "AE86 & classic",    years: [1983, 2024], base: 9000  },
-    { key: "celica",     name: "Toyota Celica",          query: "toyota celica",         tag: "GT-Four / GT-S",    years: [1990, 2006], base: 11000 },
-    { key: "talon",      name: "Eagle Talon",            query: "eagle talon",           tag: "TSi AWD · DSM",     years: [1990, 1998], base: 9000  },
-    { key: "eclipsegsx", name: "Mitsubishi Eclipse GSX", query: "mitsubishi eclipse gsx", tag: "AWD turbo · DSM",  years: [1990, 1999], base: 12000 },
+    { key: "rx7",        name: "Mazda RX-7",             query: "mazda rx7",              tag: "FC / FD · rotary",  years: [1985, 2002], base: 22000 },
+    { key: "gt86",       name: "Toyota 86 / GR86",       query: "toyota 86",              tag: "ZN6 / ZN8",         years: [2013, 2024], base: 24000 },
+    { key: "240sx",      name: "Nissan 240SX",           query: "nissan 240sx",           tag: "S13 / S14",         years: [1989, 1998], base: 16000 },
+    { key: "r32",        name: "Nissan Skyline R32",     query: "nissan skyline r32",     tag: "GT-R / GTS-T",      years: [1989, 1994], base: 38000 },
+    { key: "supra",      name: "Toyota Supra",           query: "toyota supra",           tag: "MK3 / MK4 / A90",   years: [1986, 2024], base: 45000 },
+    { key: "corolla",    name: "Toyota Corolla",         query: "toyota corolla",         tag: "AE86 & classic",    years: [1983, 2024], base: 9000  },
+    { key: "celica",     name: "Toyota Celica",          query: "toyota celica",          tag: "GT-Four / GT-S",    years: [1990, 2006], base: 11000 },
+    { key: "talon",      name: "Eagle Talon",            query: "eagle talon",            tag: "TSi AWD · DSM",     years: [1990, 1998], base: 9000  },
+    { key: "eclipsegsx", name: "Mitsubishi Eclipse GSX", query: "mitsubishi eclipse gsx", tag: "AWD turbo · DSM",   years: [1990, 1999], base: 12000 },
   ];
 
   const COUNTRIES = [
@@ -76,15 +79,14 @@
 
   function makeSample() {
     const list = [];
-    MODELS.forEach((m, mi) => {
+    MODELS.forEach((m) => {
       const rnd = mulberry32(hashStr(m.key) ^ 0x9e3779b9);
-      // each model appears in 3 random countries
       const order = COUNTRIES.map((c, i) => i).sort(() => rnd() - 0.5).slice(0, 3 + Math.floor(rnd() * 2));
       order.forEach((ci) => {
         const c = COUNTRIES[ci];
         const count = 2 + Math.floor(rnd() * 3); // 2–4 per country
         for (let i = 0; i < count; i++) {
-          const id = m.key + "-" + c.code + "-" + i;
+          const id = "sample-" + m.key + "-" + c.code + "-" + i;
           const year = m.years[0] + Math.floor(rnd() * (m.years[1] - m.years[0] + 1));
           const trim = TRIMS[Math.floor(rnd() * TRIMS.length)];
           const usd = Math.round((m.base * (0.55 + rnd() * 1.4)) / 250) * 250;
@@ -124,78 +126,62 @@
     switch (f.sort) {
       case "price_asc": out.sort((a, b) => a.price - b.price); break;
       case "price_desc": out.sort((a, b) => b.price - a.price); break;
-      default: out.sort((a, b) => a.postedDaysAgo - b.postedDaysAgo); // newest
+      default: out.sort((a, b) => (a.postedDaysAgo || 0) - (b.postedDaysAgo || 0)); // newest
     }
     return out;
   }
 
-  // ---------- LIVE provider (Apify) ----------
-  function pick(o, keys) { for (const k of keys) { if (o && o[k] != null && o[k] !== "") return o[k]; } return undefined; }
-  function parsePrice(v) {
-    if (typeof v === "number") return v;
-    if (!v) return 0;
-    const n = String(v).replace(/[^0-9.]/g, "");
-    return n ? Math.round(parseFloat(n)) : 0;
-  }
-  function mapImages(it) {
-    let imgs = pick(it, ["images", "photos", "imageUrls", "pictures", "photo_urls"]);
-    if (!imgs && it.image) imgs = [it.image];
-    if (!Array.isArray(imgs)) imgs = imgs ? [imgs] : [];
-    return imgs.map((x) => (typeof x === "string" ? x : pick(x, ["url", "src", "uri", "image"]))).filter(Boolean);
-  }
-  function mapApifyItem(it, i) {
-    return {
-      id: String(pick(it, ["id", "listingId", "itemId", "facebookId"]) || "live-" + i),
-      model: "", modelName: "", query: "",
-      title: pick(it, ["title", "name", "marketplace_listing_title"]) || "Facebook listing",
-      price: parsePrice(pick(it, ["price", "priceAmount", "listingPrice", "amount", "formattedPrice"])),
-      currency: pick(it, ["currencySymbol", "currency"]) || "$", curCode: pick(it, ["currency"]) || "",
-      country: pick(it, ["country", "countryCode"]) || "",
-      countryName: pick(it, ["country"]) || "",
-      city: pick(it, ["location", "city", "locationText", "place"]) || "",
-      year: pick(it, ["year"]) || "", mileage: parsePrice(pick(it, ["mileage", "odometer"])) || "",
-      mileageUnit: "mi", transmission: pick(it, ["transmission"]) || "",
-      postedDaysAgo: 0,
-      description: pick(it, ["description", "redactedDescription", "text"]) || "",
-      images: mapImages(it),
-      url: pick(it, ["url", "listingUrl", "link", "permalink"]) || "#",
-      seller: pick(it, ["sellerName", "seller"]) || "",
-      sample: false,
-    };
-  }
-  function buildApifyInput(f) {
-    const m = MODELS.find((x) => x.key === f.model);
-    const c = COUNTRIES.find((x) => x.code === f.country);
-    const q = m ? m.query : (f.query || "car");
-    const loc = f.city || (c ? c.cities[0] : "");
-    return {
-      query: q, search: q, keyword: q,
-      location: loc, city: loc, country: c ? c.name : undefined,
-      maxItems: 40, count: 40, resultsLimit: 40,
-      minPrice: f.minPrice || undefined, maxPrice: f.maxPrice || undefined,
-    };
-  }
-  async function fetchLive(f, settings) {
-    const actor = (settings.actorId || "").trim();
-    const token = (settings.apifyToken || "").trim();
-    if (!actor || !token) throw new Error("Live mode needs an Apify actor ID and API token (open Settings).");
-    const url = "https://api.apify.com/v2/acts/" + encodeURIComponent(actor) +
-      "/run-sync-get-dataset-items?token=" + encodeURIComponent(token) + "&timeout=120";
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildApifyInput(f)),
-    });
-    if (!res.ok) throw new Error("Apify " + res.status + ": " + (await res.text()).slice(0, 200));
-    const items = await res.json();
-    const mapped = items.map(mapApifyItem);
-    return applyFilters(mapped, { sort: f.sort }); // re-sort client-side
+  // ---------- API client ----------
+  function apiBase() {
+    const cfg = ((window.JDM_CONFIG && window.JDM_CONFIG.apiBase) || "").trim().replace(/\/+$/, "");
+    if (cfg) return cfg;
+    const host = location.hostname;
+    if (host === "localhost" || host === "127.0.0.1") return "http://localhost:3000";
+    if (location.protocol === "http:" || location.protocol === "https:") return ""; // same-origin
+    return null; // file:// with no config → offline only
   }
 
-  async function getListings(f, settings) {
-    if (settings && settings.live) return await fetchLive(f, settings);
-    return applyFilters(SAMPLE, f);
+  function buildQuery(f) {
+    const qs = new URLSearchParams();
+    if (f.model && f.model !== "all") qs.set("model", f.model);
+    if (f.country && f.country !== "all") qs.set("country", f.country);
+    if (f.minPrice) qs.set("minPrice", f.minPrice);
+    if (f.maxPrice) qs.set("maxPrice", f.maxPrice);
+    if (f.query) qs.set("q", f.query);
+    if (f.sort) qs.set("sort", f.sort);
+    return qs.toString();
   }
 
-  window.JDM = { MODELS, COUNTRIES, SAMPLE, getListings, applyFilters };
+  async function getHealth() {
+    const base = apiBase();
+    if (base === null) return null;
+    try {
+      const res = await fetch(base + "/api/health", { headers: { Accept: "application/json" } });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) { return null; }
+  }
+
+  // Returns { items, live, lastRefresh, source }
+  async function getListings(f) {
+    const base = apiBase();
+    if (base !== null) {
+      try {
+        const res = await fetch(base + "/api/listings?" + buildQuery(f), { headers: { Accept: "application/json" } });
+        if (!res.ok) throw new Error("API " + res.status);
+        const data = await res.json();
+        return {
+          items: Array.isArray(data.items) ? data.items : [],
+          live: !!data.live,
+          lastRefresh: data.lastRefresh || null,
+          source: data.live ? "live" : "sample-server",
+        };
+      } catch (e) {
+        console.warn("[JDM] API unreachable — showing offline sample listings:", e.message);
+      }
+    }
+    return { items: applyFilters(SAMPLE, f), live: false, lastRefresh: null, source: "sample-offline" };
+  }
+
+  window.JDM = { MODELS, COUNTRIES, SAMPLE, getListings, getHealth, applyFilters, apiBase };
 })();

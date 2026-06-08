@@ -6,3 +6,5 @@ Thumbs.db
 .netlify
 .env
 .env.*
+!.env.example
+!server/.env.example
