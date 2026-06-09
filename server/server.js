@@ -12,7 +12,8 @@ import cron from "node-cron";
 import { MODELS, COUNTRIES, MODEL_BY_KEY, matchesModel } from "./catalog.js";
 import { initSchema, hasDb, countLive, queryLive, getMeta, setMeta, getAllLive, deleteListingsByIds, divideLivePrices } from "./db.js";
 import { SAMPLE } from "./sample.js";
-import { isConfigured, runRefresh } from "./scraper.js";
+import { isConfigured, anySourceConfigured, runRefresh } from "./scraper.js";
+import { isEbayConfigured } from "./ebay.js";
 
 const PORT = process.env.PORT || 3000;
 const REFRESH_SECRET = (process.env.REFRESH_SECRET || "").trim();
@@ -52,6 +53,8 @@ app.get("/api/health", async (_req, res) => {
     ok: true,
     db: hasDb(),
     apify: isConfigured(),
+    ebay: isEbayConfigured(),
+    sources: [isConfigured() && "facebook", isEbayConfigured() && "ebay"].filter(Boolean),
     liveListings: live,
     sampleListings: SAMPLE.length,
     mode: live > 0 ? "live" : "sample",
@@ -99,7 +102,7 @@ function authorized(req) {
 }
 async function handleRefresh(req, res) {
   if (!authorized(req)) return res.status(401).json({ ok: false, error: "unauthorized (bad or missing secret)" });
-  if (!isConfigured()) return res.status(400).json({ ok: false, error: "Apify not configured (APIFY_TOKEN / APIFY_ACTOR)." });
+  if (!anySourceConfigured()) return res.status(400).json({ ok: false, error: "No data source configured (EBAY_CLIENT_ID/SECRET and/or APIFY_TOKEN/APIFY_ACTOR)." });
   if (refreshing) return res.status(409).json({ ok: false, error: "a refresh is already running" });
   refreshing = true;
   try {
@@ -157,7 +160,7 @@ async function boot() {
   app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
 
   // Populate on first boot (background, non-blocking) if we have a source + DB but no live data.
-  if (isConfigured() && hasDb()) {
+  if (anySourceConfigured() && hasDb()) {
     try {
       const live = await countLive();
       if (live === 0) {

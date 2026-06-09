@@ -15,17 +15,23 @@ services:
       # --- secrets: Render will prompt you to paste these on first deploy ---
       - key: DATABASE_URL      # Neon pooled connection string (…?sslmode=require)
         sync: false
-      - key: APIFY_TOKEN       # Apify API token (Settings → Integrations)
+      - key: APIFY_TOKEN       # Apify API token — Facebook Marketplace (free $5/mo)
         sync: false
-      - key: APIFY_ACTOR       # Apify actor id, e.g. owner~facebook-marketplace-scraper
+      - key: APIFY_ACTOR       # Apify actor id, e.g. apify~facebook-marketplace-scraper
+        sync: false
+      - key: EBAY_CLIENT_ID    # eBay Browse API App ID — free always-on fallback source
+        sync: false
+      - key: EBAY_CLIENT_SECRET # eBay Browse API Cert ID (Client Secret)
         sync: false
       - key: REFRESH_SECRET    # long random string to protect /api/refresh
         generateValue: true
       # --- public config / tuning ---
       - key: CORS_ORIGINS
         value: "*"
+      # Every 12h keeps Apify's Facebook scrape inside the free $5/month credit.
+      # (eBay is free, so it costs nothing regardless.)
       - key: REFRESH_CRON
-        value: "0 */6 * * *"
+        value: "0 */12 * * *"
       - key: SCRAPE_MODELS
         value: all
       - key: SCRAPE_COUNTRIES

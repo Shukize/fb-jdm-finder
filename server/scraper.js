@@ -11,6 +11,7 @@
 
 import { MODELS, COUNTRIES, MODEL_BY_KEY, COUNTRY_BY_CODE, parseList, matchesModel } from "./catalog.js";
 import { upsertListings, setMeta, pruneStale, clearLive } from "./db.js";
+import { isEbayConfigured, fetchEbay } from "./ebay.js";
 
 const APIFY_TOKEN = (process.env.APIFY_TOKEN || "").trim();
 const APIFY_ACTOR = (process.env.APIFY_ACTOR || "").trim();
@@ -22,6 +23,17 @@ const RUN_TIMEOUT = Number(process.env.SCRAPE_RUN_TIMEOUT || 120); // seconds, p
 export function isConfigured() {
   return !!(APIFY_TOKEN && APIFY_ACTOR);
 }
+
+// All data sources currently configured. Facebook (Apify) is primary; eBay is
+// a free, always-on fallback so listings still appear when Apify's free monthly
+// credit is spent. Each source.run(model, country) → { kept, fetched }.
+function activeSources() {
+  const s = [];
+  if (isConfigured()) s.push({ name: "facebook", run: runActor });
+  if (isEbayConfigured()) s.push({ name: "ebay", run: fetchEbay });
+  return s;
+}
+export function anySourceConfigured() { return isConfigured() || isEbayConfigured(); }
 
 // Which models/countries to scrape. Models default to ALL; countries default
 // to US only (each extra country multiplies Apify credit usage). Override with
@@ -189,13 +201,14 @@ async function pool(tasks, size, worker, onResult) {
 /* Scrape the whole model × country matrix and upsert into Neon.
    Returns a summary; never throws on a single failed combo. */
 export async function runRefresh({ log = console.log, reset = false } = {}) {
-  if (!isConfigured()) throw new Error("Apify not configured — set APIFY_TOKEN and APIFY_ACTOR.");
+  const sources = activeSources();
+  if (!sources.length) throw new Error("No data source configured — set EBAY_CLIENT_ID/SECRET (free) and/or APIFY_TOKEN + APIFY_ACTOR.");
   const models = targetModels();
   const countries = targetCountries();
   const combos = [];
   for (const m of models) for (const c of countries) combos.push({ m, c });
 
-  log(`[scrape] starting: ${models.length} models × ${countries.length} countries = ${combos.length} runs (concurrency ${CONCURRENCY})`);
+  log(`[scrape] starting: ${models.length} models × ${countries.length} countries = ${combos.length} combos × sources [${sources.map((s) => s.name).join(", ")}] (concurrency ${CONCURRENCY})`);
   let fetched = 0, kept = 0, inserted = 0;
   const errors = [];
   const all = [];
@@ -203,13 +216,23 @@ export async function runRefresh({ log = console.log, reset = false } = {}) {
   await pool(
     combos,
     CONCURRENCY,
-    ({ m, c }) => runActor(m, c),
+    // Run every configured source for this combo and merge. One source failing
+    // (e.g. Apify out of credit) doesn't lose the other's results.
+    async ({ m, c }) => {
+      let fetchedN = 0; const keptItems = []; const srcErrors = [];
+      for (const s of sources) {
+        try { const r = await s.run(m, c); fetchedN += r.fetched; keptItems.push(...r.kept); }
+        catch (e) { srcErrors.push(`${s.name}: ${e.message}`); }
+      }
+      return { fetched: fetchedN, kept: keptItems, srcErrors };
+    },
     (result, { m, c }, err) => {
       if (err) { errors.push(`${m.key}/${c.code}: ${err.message}`); log(`[scrape] ✗ ${m.key}/${c.code}: ${err.message}`); return; }
       fetched += result.fetched;
       kept += result.kept.length;
       all.push(...result.kept);
-      log(`[scrape] ✓ ${m.key}/${c.code}: kept ${result.kept.length}/${result.fetched} relevant`);
+      for (const se of result.srcErrors) errors.push(`${m.key}/${c.code} ${se}`);
+      log(`[scrape] ✓ ${m.key}/${c.code}: kept ${result.kept.length}/${result.fetched} relevant${result.srcErrors.length ? ` (${result.srcErrors.length} src err)` : ""}`);
     }
   );
 
