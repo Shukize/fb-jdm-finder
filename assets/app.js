@@ -5,6 +5,27 @@
   const $ = (s, r) => (r || document).querySelector(s);
   const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
 
+  const FB_ICON = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.2c-1.2 0-1.6.8-1.6 1.6V12h2.7l-.4 2.9h-2.3v7A10 10 0 0 0 22 12z"/></svg>`;
+
+  /* Build the exact Facebook Marketplace search URL from the current filters.
+     This is the free, always-live way to "find specific vehicles on Facebook":
+     it carries the chosen model, price range and sort straight into FB's own
+     search. A specific country targets that country's main city; "all" uses the
+     viewer's own Facebook location (best for "near me"). */
+  function fbSearchUrl(f) {
+    const model = MODELS.find((m) => m.key === f.model);
+    const terms = [model ? model.query : "", f.query].filter(Boolean).join(" ").trim() || "jdm";
+    const sortBy = f.sort === "price_asc" ? "price_ascend" : f.sort === "price_desc" ? "price_descend" : "creation_time_descend";
+    const country = f.country !== "all" && COUNTRIES.find((c) => c.code === f.country);
+    const slug = country ? country.cities[0].toLowerCase().replace(/[^a-z0-9]+/g, "") : "";
+    const base = "https://www.facebook.com/marketplace/" + (slug ? slug + "/search/" : "search/");
+    const qs = new URLSearchParams({ query: terms, sortBy, exact: "false" });
+    if (f.minPrice) qs.set("minPrice", f.minPrice);
+    if (f.maxPrice) qs.set("maxPrice", f.maxPrice);
+    return base + "?" + qs.toString();
+  }
+  function openFbSearch() { readFilters(); window.open(fbSearchUrl(filters), "_blank", "noopener"); }
+
   const LS = {
     filters: "jdm.filters.v2",
     saved: "jdm.saved.v2",
@@ -56,6 +77,9 @@
           <button class="btn" id="searchBtn">Search</button>
           <button class="btn ghost" id="saveBtn" title="Save this search">★</button>
         </div>
+        <div class="field go fbgo">
+          <button class="btn fb" id="fbSearchBtn" title="Open this exact search on Facebook Marketplace">${FB_ICON} Search on Facebook ↗</button>
+        </div>
       </section>
 
       <div class="status" id="status"></div>
@@ -86,6 +110,7 @@
 
     // events
     $("#searchBtn").onclick = runSearch;
+    $("#fbSearchBtn").onclick = openFbSearch;
     $("#saveBtn").onclick = saveCurrentSearch;
     $("#aboutBtn").onclick = openAbout;
     $("#savedBtn").onclick = openDrawer;
@@ -121,7 +146,8 @@
         ? `<span class="pill live">LIVE · Facebook</span>`
         : `<span class="pill sample">SAMPLE DATA</span>`;
       const fresh = data.live && data.lastRefresh ? " · updated " + timeAgo(data.lastRefresh) : "";
-      status.innerHTML = `${pill} ${current.length} listing${current.length === 1 ? "" : "s"} · ${where}${fresh}`;
+      const fbHref = esc(fbSearchUrl(filters));
+      status.innerHTML = `${pill} ${current.length} listing${current.length === 1 ? "" : "s"} · ${where}${fresh} · <a class="fblink" href="${fbHref}" target="_blank" rel="noopener">${FB_ICON} see live on Facebook ↗</a>`;
     } catch (err) {
       current = [];
       renderResults([]);
@@ -133,7 +159,13 @@
     const grid = $("#results");
     grid.innerHTML = "";
     if (!items.length) {
-      grid.appendChild(el("div", "empty", "No listings match. Try widening the price range, switching country, or choosing “All models.”"));
+      const empty = el("div", "empty");
+      empty.innerHTML = `No embedded listings match right now. Search this exact vehicle straight on Facebook Marketplace:<br><br>`;
+      const btn = el("button", "btn fb big");
+      btn.innerHTML = `${FB_ICON} Search on Facebook Marketplace ↗`;
+      btn.onclick = openFbSearch;
+      empty.appendChild(btn);
+      grid.appendChild(empty);
       return;
     }
     const seen = activeSeenSet();

@@ -47,6 +47,14 @@ header.app p.tag { color: var(--muted); margin: 6px 0 0; width: 100%; }
 }
 .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
 .btn:hover { filter: brightness(1.08); }
+/* Facebook deep-link button — the free "find it straight on FB" action */
+.btn.fb { background: #1877f2; color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; }
+.btn.fb svg { width: 17px; height: 17px; }
+.btn.fb.big { width: auto; padding: 12px 20px; }
+.fbgo { grid-column: 1 / -1; }
+.fblink { color: #5aa1ff; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.fblink svg { width: 14px; height: 14px; }
+.fblink:hover { text-decoration: underline; }
 
 /* Status bar */
 .status { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; margin: 4px 2px 16px; min-height: 22px; }
